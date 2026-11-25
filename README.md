@@ -1,0 +1,35 @@
+# OpenCode Scheduler
+
+Schedule a one-off prompt from the OpenCode terminal UI or ask an agent to schedule it. The OpenCode server stores the task and opens a new session in the original working directory when it is due. Each task belongs to the project active when you schedule it.
+
+## Install
+
+Use OpenCode 2.4.1 with the v2 plugin API. In this checkout, run `npm ci`. Add the checkout’s absolute path to `plugins` in your existing `opencode.json` or `opencode.jsonc`. The server that runs the plugin must be able to read that path.
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["C:/Users/me/code/opencode-scheduler"],
+  "experimental": { "location_idle_timeout": false }
+}
+```
+
+Use a project configuration to enable the scheduler for that project, or your global configuration to enable it across projects. `location_idle_timeout: false` keeps the plugin loaded when the project is idle. OpenCode otherwise unloads idle locations after 60 minutes by default. Reload the affected location after installation. With a separate server, connect the TUI to that server and use the configuration and checkout on its host. [OpenCode configuration](https://opencode.ai/docs/config/#location-idle-timeout)
+
+## Schedule and inspect tasks
+
+- Enter `/schedule` or select **+ Schedule task** in the sidebar. Enter a future ISO 8601 date and time with a UTC offset, an agent ID, a `provider/model` ID, and the prompt. Press **Ctrl+S** to save. The form works when no model is connected.
+- Enter `/scheduled-tasks` or select the sidebar’s **Scheduled tasks** heading to browse the active project’s tasks. Select a task to see its prompt, model, state, and original directory. **Open session** appears after OpenCode creates the task’s session.
+- From a conversation with an available model, ask the agent to schedule a task. The `schedule_task` tool accepts the same four fields and derives the directory from the current session.
+
+## Server behavior
+
+Keep OpenCode’s normal shared service or an `opencode serve` process running. Once the server has loaded the plugin for a project, it can execute its tasks after the TUI disconnects. If the server stops, pending tasks remain queued and overdue tasks become eligible when the server loads the plugin for that project again. Worktree paths are captured at enqueue time, and OpenCode uses the files and settings present there at execution time.
+
+If the selected model is missing from the original directory’s model list, the scheduler checks again every 30 seconds for up to five minutes from the first attempt. Once OpenCode accepts the prompt, its regular provider retry and permission handling apply. If the server stops during execution, the scheduler checks the original session’s saved outcome after its lease expires. Tasks with no confirmed outcome are marked failed and retain the session link when available.
+
+The queue is stored under `$XDG_STATE_HOME/opencode-scheduler` or `~/.local/state/opencode-scheduler`, with a database per OpenCode release channel. The database contains task prompts, provider/model selections, working directories, and session IDs.
+
+## Development
+
+Run `npm run check` and `npm test` from the checkout. The tests use Node.js 22.6 or newer. The plugin runs inside OpenCode’s Bun runtime.
