@@ -4,17 +4,17 @@ Schedule a one-off prompt from the OpenCode terminal UI or ask an agent to sched
 
 ## Install
 
-Use OpenCode 2.4.1 with the v2 plugin API. In this checkout, run `npm ci`. Add the checkout’s absolute path to `plugins` in your existing `opencode.json` or `opencode.jsonc`. The server that runs the plugin must be able to read that path.
+With OpenCode 2.4.1, add the GitHub entry below to the `plugins` array in your existing `opencode.json` or `opencode.jsonc`. OpenCode downloads the plugin from the public repository and tracks the `feature/scheduler` development branch. If you previously configured a local checkout, replace its entry with the GitHub entry. [OpenCode plugin installation](https://opencode.ai/docs/plugins/#manage)
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["C:/Users/me/code/opencode-scheduler"],
+  "plugins": ["github:skzdrf/opencode-scheduler#feature/scheduler"],
   "experimental": { "location_idle_timeout": false }
 }
 ```
 
-Use a project configuration to enable the scheduler for that project, or your global configuration to enable it across projects. `location_idle_timeout: false` keeps the plugin loaded when the project is idle. OpenCode otherwise unloads idle locations after 60 minutes by default. Reload the affected location after installation. With a separate server, connect the TUI to that server and use the configuration and checkout on its host. [OpenCode configuration](https://opencode.ai/docs/config/#location-idle-timeout)
+Use the project configuration for one project or the global configuration for all projects. If you connect to `opencode serve`, edit the configuration on the server host. Set `experimental.location_idle_timeout` to `false` so tasks can run after the project has been idle for more than an hour. Reload the project, then enter `/schedule` in the TUI to open the task form. [OpenCode configuration](https://opencode.ai/docs/config/#location-idle-timeout)
 
 ## Schedule and inspect tasks
 
@@ -32,4 +32,4 @@ The queue is stored under `$XDG_STATE_HOME/opencode-scheduler` or `~/.local/stat
 
 ## Development
 
-Run `npm run check` and `npm test` from the checkout. The tests use Node.js 22.6 or newer. The plugin runs inside OpenCode’s Bun runtime.
+For local development, clone the repository, run `npm ci`, and use the checkout’s absolute path as the plugin entry. Run `npm run check` and `npm test` from the checkout. The tests use Node.js 22.6 or newer. The plugin runs inside OpenCode’s Bun runtime.
