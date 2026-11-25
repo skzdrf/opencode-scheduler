@@ -27,5 +27,9 @@ export const Scheduler = Rpc.define({
       errors: { invalid_task: empty },
     },
     list: { input: empty, output: { type: "array", items: task } },
+    remove: {
+      input: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+      output: { type: "boolean" },
+    },
   },
 })

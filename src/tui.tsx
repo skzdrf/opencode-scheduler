@@ -36,7 +36,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-function activateOnRelease(action: () => Promise<void>) {
+function activateOnRelease(action: () => void | Promise<void>) {
   return (event: MouseEvent) => {
     if (event.button !== 0) return
     event.stopPropagation()
@@ -105,7 +105,7 @@ function TaskForm(props: { context: Context; save: SaveTask }) {
           keyBindings={[{ name: "s", ctrl: true, action: "submit" }]} onSubmit={() => void submit()}
           ref={(element) => { promptInput = element }} />
       </box>
-      <Show when={error()}><text fg={context.theme.status.error}>{error()}</text></Show>
+      <Show when={error()}><text fg={context.theme.text.base}>{error()}</text></Show>
       <box onMouseUp={activateOnRelease(submit)}>
         <text fg={context.theme.text.base}>{saving() ? "Scheduling…" : "Schedule  Ctrl+S"}</text>
       </box>
@@ -151,14 +151,46 @@ export default Plugin.define({
       if (task.error) description.push("", task.error)
       const message = description.join("\n")
       const sessionID = task.sessionID
-      if (!sessionID) {
-        await context.ui.dialog.alert({ title: "Scheduled task", message })
-        return
+      async function remove() {
+        const confirmed = await context.ui.dialog.confirm({
+          title: "Delete task?", message: taskTitle(task),
+          label: { confirm: "Delete", cancel: "Keep task" },
+        })
+        if (!confirmed) return
+        try {
+          const removed = await rpc().remove({ id: task.id }, { location: await location(activeSession()) })
+          context.ui.toast.show(removed
+            ? { message: "Task deleted", variant: "success" }
+            : { message: "Task is already running or has been deleted", variant: "warning" })
+        } catch (cause) {
+          context.ui.toast.show({ message: errorMessage(cause), variant: "error" })
+        }
       }
-      const open = await context.ui.dialog.confirm({
-        title: "Scheduled task", message, label: { confirm: "Open session", cancel: "Close" },
+      function openSession() {
+        if (sessionID) {
+          context.ui.dialog.clear()
+          context.ui.router.navigate({ type: "session", sessionID })
+        }
+      }
+      context.ui.dialog.show(() => {
+        context.keymap.layer(() => ({
+          mode: "global", priority: 100,
+          commands: [
+            ...(task.state === "running" ? [] : [{ bind: "d", run: () => void remove() }]),
+            ...(sessionID ? [{ bind: "o", run: openSession }] : []),
+          ],
+        }))
+        return <box flexDirection="column" padding={1} gap={1}>
+          <text fg={context.theme.text.base}>Scheduled task</text>
+          <scrollbox maxHeight="60%"><text fg={context.theme.text.base}>{message}</text></scrollbox>
+          <box flexDirection="row" gap={2}>
+            <Show when={sessionID}><box onMouseUp={activateOnRelease(openSession)}><text>Open session [o]</text></box></Show>
+            <Show when={task.state !== "running"}><box onMouseUp={activateOnRelease(remove)}><text fg={context.theme.text.base}>Delete [d]</text></box></Show>
+            <box onMouseUp={activateOnRelease(() => context.ui.dialog.clear())}><text>Close [Esc]</text></box>
+          </box>
+        </box>
       })
-      if (open) context.ui.router.navigate({ type: "session", sessionID })
+      context.ui.dialog.set({ size: "large" })
     }
 
     async function openList() {

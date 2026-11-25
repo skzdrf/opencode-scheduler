@@ -106,6 +106,12 @@ export default Plugin.define({
     try {
       await ctx.rpc.register(Scheduler, {
         list: async () => queue.list(project),
+        remove: async (input) => {
+          if (!input || typeof input !== "object" || !("id" in input) || typeof input.id !== "string") {
+            throw new Error("A task ID is required.")
+          }
+          return queue.remove(project, input.id)
+        },
         enqueue: async (input, context) => {
           let fields
           try {

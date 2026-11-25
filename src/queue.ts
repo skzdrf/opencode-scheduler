@@ -51,6 +51,11 @@ export class Queue {
       state, sessionID, error FROM tasks WHERE project = ? ORDER BY runAt, id`).all(project)
   }
 
+  remove(project: string, id: string): boolean {
+    return this.db.run("DELETE FROM tasks WHERE project = ? AND id = ? AND state != 'running'",
+      [project, id]).changes === 1
+  }
+
   claim(project: string, owner: string, now: number): ClaimedTask | null {
     return this.db.query<ClaimedTask, [string, number, number, string, string, number]>(`UPDATE tasks
       SET state = 'running', owner = ?, leaseUntil = ?, firstAttemptAt = coalesce(firstAttemptAt, ?), error = NULL, retryAt = NULL

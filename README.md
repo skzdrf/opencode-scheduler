@@ -21,6 +21,7 @@ Use the project configuration for one project or the global configuration for al
 - Enter `/schedule` or select **+ Schedule task** in the sidebar. Enter a future ISO 8601 date and time with a UTC offset, an agent ID, a `provider/model` ID, and the prompt. Press **Ctrl+S** to save. The form works when no model is connected.
 - Enter `/scheduled-tasks` or select the sidebar’s **Scheduled tasks** heading to browse the active project’s tasks. Select a task to see its prompt, model, state, and original directory. **Open session** appears after OpenCode creates the task’s session.
 - From a conversation with an available model, ask the agent to schedule a task. The `schedule_task` tool accepts the same four fields and derives the directory from the current session.
+- In a task's details, select **Delete** or press **D**, then confirm. Deleting a scheduled task cancels its launch. Completed and failed tasks can be removed from the list while keeping their OpenCode sessions. A running task can be removed after it finishes.
 
 ## Server behavior
 
