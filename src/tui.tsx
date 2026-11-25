@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
-import type { TextareaRenderable } from "@opentui/core"
+import type { MouseEvent, TextareaRenderable } from "@opentui/core"
 import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js"
 import { Scheduler } from "./rpc.ts"
 import { parseTaskInput, taskTitle, type Task, type TaskInput } from "./task.ts"
@@ -34,6 +34,14 @@ function taskOrder(a: Task, b: Task) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function activateOnRelease(action: () => Promise<void>) {
+  return (event: MouseEvent) => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    void action()
+  }
 }
 
 function TaskForm(props: { context: Context; save: SaveTask }) {
@@ -98,7 +106,7 @@ function TaskForm(props: { context: Context; save: SaveTask }) {
           ref={(element) => { promptInput = element }} />
       </box>
       <Show when={error()}><text fg={context.theme.status.error}>{error()}</text></Show>
-      <box onMouseDown={() => void submit()}>
+      <box onMouseUp={activateOnRelease(submit)}>
         <text fg={context.theme.text.base}>{saving() ? "Scheduling…" : "Schedule  Ctrl+S"}</text>
       </box>
     </box>
@@ -207,16 +215,16 @@ export default Plugin.define({
 
       return (
         <box flexDirection="column">
-          <box onMouseDown={() => void openList()}><text fg={context.theme.text.base}>Scheduled tasks</text></box>
-          <box onMouseDown={() => void openForm()}><text fg={context.theme.text.base}>+ Schedule task</text></box>
+          <box onMouseUp={activateOnRelease(openList)}><text fg={context.theme.text.base}>Scheduled tasks</text></box>
+          <box onMouseUp={activateOnRelease(openForm)}><text fg={context.theme.text.base}>+ Schedule task</text></box>
           <For each={items().slice(0, 5)} fallback={<text fg={context.theme.text.muted}>No tasks</text>}>
-            {(task) => <box flexDirection="column" onMouseDown={() => void details(task)}>
+            {(task) => <box flexDirection="column" onMouseUp={activateOnRelease(() => details(task))}>
               <text fg={context.theme.text.base} truncate>{taskTitle(task)}</text>
               <text fg={context.theme.text.muted} truncate>{task.state} · {sidebarTime(task)}</text>
             </box>}
           </For>
           <Show when={items().length > 5}>
-            <box onMouseDown={() => void openList()}><text fg={context.theme.text.muted}>View all {items().length} tasks</text></box>
+            <box onMouseUp={activateOnRelease(openList)}><text fg={context.theme.text.muted}>View all {items().length} tasks</text></box>
           </Show>
         </box>
       )
