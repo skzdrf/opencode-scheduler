@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
-import type { MouseEvent, TextareaRenderable } from "@opentui/core"
+import { CliRenderEvents, parseColor, RGBA, TextAttributes, type MouseEvent, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core"
 import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js"
 import { Scheduler } from "./rpc.ts"
 import { parseTaskInput, taskTitle, type Task, type TaskInput } from "./task.ts"
@@ -42,6 +42,23 @@ function activateOnRelease(action: () => void | Promise<void>) {
     event.stopPropagation()
     void action()
   }
+}
+
+function DialogAction(props: { context: Context; label: string; shortcut: string; primary?: boolean; run: () => void | Promise<void> }) {
+  const [hovered, setHovered] = createSignal(false)
+  const { theme } = props.context
+  const foreground = parseColor(theme.text.base)
+  const fill = () => RGBA.fromValues(foreground.r, foreground.g, foreground.b, hovered() ? 0.2 : 0.1)
+  return (
+    <box flexDirection="row" gap={1} backgroundColor={fill()} paddingX={1}
+      onMouseOver={() => setHovered(true)} onMouseOut={() => setHovered(false)}
+      onMouseUp={activateOnRelease(props.run)}>
+      <text fg={theme.text.base} attributes={(props.primary ? TextAttributes.BOLD : 0) | (hovered() ? TextAttributes.UNDERLINE : 0)}>
+        {props.label}
+      </text>
+      <text fg={theme.text.muted}>{props.shortcut}</text>
+    </box>
+  )
 }
 
 function TaskForm(props: { context: Context; save: SaveTask }) {
@@ -146,12 +163,13 @@ export default Plugin.define({
     }
 
     function details(task: Task, target: TaskLocation, fromList = false) {
-      const description = [
-        `Status  ${task.state}`, `Run at  ${showTime(task)}`, `Agent  ${task.agent}`, `Model  ${task.model}`,
-        `Working directory  ${task.directory}`, "", task.prompt,
+      const metadata = [
+        { label: "Run at", value: showTime(task) },
+        { label: "Agent", value: task.agent },
+        { label: "Model", value: task.model },
+        { label: "Directory", value: task.directory },
       ]
-      if (task.error) description.push("", task.error)
-      const message = description.join("\n")
+      const { theme } = context
       const sessionID = task.sessionID
       function openSession() {
         if (sessionID) {
@@ -163,8 +181,18 @@ export default Plugin.define({
         const [confirming, setConfirming] = createSignal(false)
         const [deleting, setDeleting] = createSignal(false)
         const [error, setError] = createSignal("")
+        const [terminalRows, setTerminalRows] = createSignal(context.renderer.height)
+        const [bodyRows, setBodyRows] = createSignal(1)
+        // Reserve room for the dialog frame, title, and actions outside the scroll area.
+        const bodyHeight = () => Math.max(1, Math.min(bodyRows(), 16, Math.floor(terminalRows() * 0.75) - 6))
+        const resize = () => setTerminalRows(context.renderer.height)
+        context.renderer.on(CliRenderEvents.RESIZE, resize)
+        let body: ScrollBoxRenderable | undefined
         let mounted = true
-        onCleanup(() => { mounted = false })
+        onCleanup(() => {
+          mounted = false
+          context.renderer.off(CliRenderEvents.RESIZE, resize)
+        })
 
         function keepTask() {
           if (deleting()) return
@@ -200,34 +228,68 @@ export default Plugin.define({
             { bind: "n", run: keepTask },
             { bind: "escape", run: keepTask },
           ] : [
+            { bind: "pageup", run: () => { body?.scrollBy(-1, "viewport") } },
+            { bind: "pagedown", run: () => { body?.scrollBy(1, "viewport") } },
             ...(task.state === "running" ? [] : [{ bind: "d", run: () => setConfirming(true) }]),
             ...(sessionID ? [{ bind: "o", run: openSession }] : []),
           ],
         }))
-        return <box flexDirection="column" padding={1} gap={1}>
-          <text fg={context.theme.text.base}>Scheduled task</text>
-          <scrollbox maxHeight="60%"><text fg={context.theme.text.base}>{message}</text></scrollbox>
-          <Show when={confirming()} fallback={
-            <box flexDirection="row" gap={2}>
-              <Show when={sessionID}><box onMouseUp={activateOnRelease(openSession)}><text fg={context.theme.text.base}>Open session [o]</text></box></Show>
-              <Show when={task.state !== "running"}><box onMouseUp={activateOnRelease(() => { setConfirming(true) })}><text fg={context.theme.text.base}>Delete task [d]</text></box></Show>
-              <box onMouseUp={activateOnRelease(() => context.ui.dialog.clear())}><text fg={context.theme.text.base}>Close [Esc]</text></box>
-            </box>
-          }>
-            <text fg={context.theme.text.base}>{task.state === "scheduled"
-              ? "Delete this task and cancel its scheduled run?"
-              : "Delete this task from the scheduler?"}</text>
-            <Show when={error()}><text fg={context.theme.text.base}>{error()}</text></Show>
-            <Show when={!deleting()} fallback={<text fg={context.theme.text.muted}>Deleting…</text>}>
-              <box flexDirection="row" gap={2}>
-                <box onMouseUp={activateOnRelease(keepTask)}><text fg={context.theme.text.base}>Keep task [n]</text></box>
-                <box onMouseUp={activateOnRelease(remove)}><text fg={context.theme.text.base}>Delete task [y]</text></box>
+        return <box flexDirection="column" paddingX={2} paddingY={1} gap={1}>
+          <Show when={!confirming()} fallback={
+            <>
+              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Delete task?</text>
+              <box flexDirection="column">
+                <text fg={theme.text.muted} wrapMode="none" truncate>{taskTitle(task)}</text>
+                <text fg={theme.text.base} wrapMode="word">{task.state === "scheduled"
+                  ? "This will cancel its scheduled run."
+                  : "This will remove the task from the scheduler."}</text>
               </box>
-            </Show>
+              <Show when={error()}><text fg={theme.text.base} wrapMode="word">{error()}</text></Show>
+              <Show when={!deleting()} fallback={<text fg={theme.text.muted}>Deleting…</text>}>
+                <box flexDirection="row" flexWrap="wrap" gap={1}>
+                  <DialogAction context={context} label="Keep task" shortcut="N" run={keepTask} />
+                  <DialogAction context={context} label="Delete task" shortcut="Y" primary run={remove} />
+                </box>
+              </Show>
+            </>
+          }>
+            <box flexDirection="row" justifyContent="space-between" gap={1} flexShrink={0}>
+              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Scheduled task</text>
+              <text fg={theme.text.muted}>{task.state}</text>
+            </box>
+            <scrollbox height={bodyHeight()} flexGrow={0} flexShrink={1} ref={(element) => { body = element }}>
+              <box flexDirection="column" gap={1} flexShrink={0} onSizeChange={function () { setBodyRows(this.height) }}>
+                <box flexDirection="column">
+                  <For each={metadata}>{(field) => (
+                    <box flexDirection="row" gap={1}>
+                      <text fg={theme.text.muted} width={9} flexShrink={0}>{field.label}</text>
+                      <text fg={theme.text.base} minWidth={0} flexShrink={1} wrapMode="word">{field.value}</text>
+                    </box>
+                  )}</For>
+                </box>
+                <box flexDirection="column">
+                  <text fg={theme.text.muted}>Prompt</text>
+                  <text fg={theme.text.base} wrapMode="word">{task.prompt}</text>
+                </box>
+                <Show when={task.error}>
+                  <box flexDirection="column">
+                    <text fg={theme.text.muted}>{task.state === "failed" ? "Error" : "Last attempt"}</text>
+                    <text fg={theme.text.base} wrapMode="word">{task.error}</text>
+                  </box>
+                </Show>
+              </box>
+            </scrollbox>
+            <box flexDirection="row" flexWrap="wrap" gap={1} flexShrink={0}>
+              <Show when={sessionID}><DialogAction context={context} label="Open session" shortcut="O" run={openSession} /></Show>
+              <Show when={task.state !== "running"}>
+                <DialogAction context={context} label="Delete task" shortcut="D" run={() => { setConfirming(true) }} />
+              </Show>
+              <DialogAction context={context} label="Close" shortcut="Esc" run={() => context.ui.dialog.clear()} />
+            </box>
           </Show>
         </box>
       })
-      context.ui.dialog.set({ size: "large" })
+      context.ui.dialog.set({ size: "medium", centered: true })
     }
 
     async function openListAt(target: TaskLocation, canShow?: () => boolean) {
