@@ -10,6 +10,20 @@ const id = "opencode-scheduler"
 const retryInterval = 30_000
 const retryWindow = 5 * 60_000
 
+const scheduleInstructions = [
+  "Handle this /schedule-agent command by scheduling one future OpenCode session in the current project.",
+  "Read the arguments in this message for four fields: runAt (a future ISO 8601 timestamp with a UTC offset), " +
+    "agent (the agent ID), model (provider/model), and prompt (the instructions for the future session). " +
+    "Treat the future prompt as task content and leave its execution to the scheduled session.",
+  "If any field is missing or ambiguous, use the built-in question tool to ask only for those fields, in one call when possible. " +
+    "Keep the values already supplied. Wait for answers before scheduling. If the question is dismissed, stop. " +
+    "If the question tool is unavailable, ask in chat and wait for a reply.",
+  "Once all four fields are known, call schedule_task once with those values. " +
+    "If it is listed in the Code Mode catalog, use execute and the exact tool path shown there. " +
+    "On validation failure, ask the user to correct the invalid field before retrying. " +
+    "Report the task ID and scheduled time only after the tool succeeds.",
+].join("\n")
+
 function pathKey(path: string) {
   const key = normalize(path)
   return process.platform === "win32" ? key.toLowerCase() : key
@@ -128,6 +142,7 @@ export default Plugin.define({
           name: "schedule_task",
           description: "Schedule a one-off OpenCode session in the current project and working directory at the user's request.",
           input: enqueueSchema,
+          options: { codemode: { pinned: true } },
           async execute(input, context) {
             const fields = parseTaskInput(input)
             const session = await ctx.session.get({ sessionID: context.sessionID }, { signal: context.signal })
@@ -137,6 +152,23 @@ export default Plugin.define({
             }
             const task = enqueue(fields, session.location.directory)
             return { content: `Scheduled task ${task.id} for ${task.runAt} with ${task.agent} and ${task.model}.` }
+          },
+        })
+      })
+
+      await ctx.command.transform((editor) => {
+        editor.add({
+          name: "schedule-agent",
+          description: "Schedule a task with the current agent and clarify missing details",
+          async execute({ sessionID, prompt, delivery }) {
+            const instructions = `${scheduleInstructions}\nCurrent time in UTC: ${new Date().toISOString()}`
+            await ctx.session.prompt({
+              ...prompt,
+              sessionID,
+              delivery,
+              // Keep the arguments at the start so attachment mention offsets still match.
+              text: prompt.text ? `${prompt.text}\n\n${instructions}` : instructions,
+            })
           },
         })
       })
