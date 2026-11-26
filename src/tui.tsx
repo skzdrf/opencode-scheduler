@@ -117,19 +117,21 @@ export default Plugin.define({
   id: "opencode-scheduler.tui",
   setup(context) {
     const rpc = () => context.client.rpc(Scheduler)
+    const [taskRevision, setTaskRevision] = createSignal(0)
     async function location(sessionID?: string) {
       if (!sessionID) return context.location ?? context.data.location.default()
       const session = context.data.session.get(sessionID) ?? await context.client.session.get({ sessionID })
       return session.location
     }
+    type TaskLocation = Awaited<ReturnType<typeof location>>
 
     function activeSession() {
       const route = context.ui.router.current()
       return route.type === "session" ? route.sessionID : undefined
     }
 
-    async function tasks(sessionID?: string) {
-      const current = await rpc().list({}, { location: await location(sessionID) }) as Task[]
+    async function tasks(target: TaskLocation) {
+      const current = await rpc().list({}, { location: target }) as Task[]
       return current.sort(taskOrder)
     }
 
@@ -143,7 +145,7 @@ export default Plugin.define({
       }
     }
 
-    async function details(task: Task) {
+    function details(task: Task, target: TaskLocation, fromList = false) {
       const description = [
         `Status  ${task.state}`, `Run at  ${showTime(task)}`, `Agent  ${task.agent}`, `Model  ${task.model}`,
         `Working directory  ${task.directory}`, "", task.prompt,
@@ -151,21 +153,6 @@ export default Plugin.define({
       if (task.error) description.push("", task.error)
       const message = description.join("\n")
       const sessionID = task.sessionID
-      async function remove() {
-        const confirmed = await context.ui.dialog.confirm({
-          title: "Delete task?", message: taskTitle(task),
-          label: { confirm: "Delete", cancel: "Keep task" },
-        })
-        if (!confirmed) return
-        try {
-          const removed = await rpc().remove({ id: task.id }, { location: await location(activeSession()) })
-          context.ui.toast.show(removed
-            ? { message: "Task deleted", variant: "success" }
-            : { message: "Task is already running or has been deleted", variant: "warning" })
-        } catch (cause) {
-          context.ui.toast.show({ message: errorMessage(cause), variant: "error" })
-        }
-      }
       function openSession() {
         if (sessionID) {
           context.ui.dialog.clear()
@@ -173,29 +160,80 @@ export default Plugin.define({
         }
       }
       context.ui.dialog.show(() => {
+        const [confirming, setConfirming] = createSignal(false)
+        const [deleting, setDeleting] = createSignal(false)
+        const [error, setError] = createSignal("")
+        let mounted = true
+        onCleanup(() => { mounted = false })
+
+        function keepTask() {
+          if (deleting()) return
+          setError("")
+          setConfirming(false)
+        }
+
+        async function remove() {
+          if (!confirming() || deleting()) return
+          setError("")
+          setDeleting(true)
+          try {
+            const removed = await rpc().remove({ id: task.id }, { location: target })
+            setTaskRevision((revision) => revision + 1)
+            context.ui.toast.show(removed
+              ? { message: "Task deleted", variant: "success" }
+              : { message: "Task is already running or has been deleted", variant: "warning" })
+            if (!mounted) return
+            if (fromList) await openListAt(target, () => mounted)
+            else context.ui.dialog.clear()
+          } catch (cause) {
+            if (mounted) setError(errorMessage(cause))
+            else context.ui.toast.show({ message: errorMessage(cause), variant: "error" })
+          } finally {
+            if (mounted) setDeleting(false)
+          }
+        }
+
         context.keymap.layer(() => ({
           mode: "global", priority: 100,
-          commands: [
-            ...(task.state === "running" ? [] : [{ bind: "d", run: () => void remove() }]),
+          commands: confirming() ? [
+            { bind: "y", run: () => void remove() },
+            { bind: "n", run: keepTask },
+            { bind: "escape", run: keepTask },
+          ] : [
+            ...(task.state === "running" ? [] : [{ bind: "d", run: () => setConfirming(true) }]),
             ...(sessionID ? [{ bind: "o", run: openSession }] : []),
           ],
         }))
         return <box flexDirection="column" padding={1} gap={1}>
           <text fg={context.theme.text.base}>Scheduled task</text>
           <scrollbox maxHeight="60%"><text fg={context.theme.text.base}>{message}</text></scrollbox>
-          <box flexDirection="row" gap={2}>
-            <Show when={sessionID}><box onMouseUp={activateOnRelease(openSession)}><text>Open session [o]</text></box></Show>
-            <Show when={task.state !== "running"}><box onMouseUp={activateOnRelease(remove)}><text fg={context.theme.text.base}>Delete [d]</text></box></Show>
-            <box onMouseUp={activateOnRelease(() => context.ui.dialog.clear())}><text>Close [Esc]</text></box>
-          </box>
+          <Show when={confirming()} fallback={
+            <box flexDirection="row" gap={2}>
+              <Show when={sessionID}><box onMouseUp={activateOnRelease(openSession)}><text fg={context.theme.text.base}>Open session [o]</text></box></Show>
+              <Show when={task.state !== "running"}><box onMouseUp={activateOnRelease(() => { setConfirming(true) })}><text fg={context.theme.text.base}>Delete task [d]</text></box></Show>
+              <box onMouseUp={activateOnRelease(() => context.ui.dialog.clear())}><text fg={context.theme.text.base}>Close [Esc]</text></box>
+            </box>
+          }>
+            <text fg={context.theme.text.base}>{task.state === "scheduled"
+              ? "Delete this task and cancel its scheduled run?"
+              : "Delete this task from the scheduler?"}</text>
+            <Show when={error()}><text fg={context.theme.text.base}>{error()}</text></Show>
+            <Show when={!deleting()} fallback={<text fg={context.theme.text.muted}>Deleting…</text>}>
+              <box flexDirection="row" gap={2}>
+                <box onMouseUp={activateOnRelease(keepTask)}><text fg={context.theme.text.base}>Keep task [n]</text></box>
+                <box onMouseUp={activateOnRelease(remove)}><text fg={context.theme.text.base}>Delete task [y]</text></box>
+              </box>
+            </Show>
+          </Show>
         </box>
       })
       context.ui.dialog.set({ size: "large" })
     }
 
-    async function openList() {
+    async function openListAt(target: TaskLocation, canShow?: () => boolean) {
       try {
-        const items = await tasks(activeSession())
+        const items = await tasks(target)
+        if (canShow?.() === false) return
         if (items.length === 0) {
           await context.ui.dialog.alert({ title: "Scheduled tasks", message: "This project has no scheduled tasks." })
           return
@@ -204,7 +242,16 @@ export default Plugin.define({
           title: "Scheduled tasks",
           options: items.map((task) => ({ title: taskTitle(task), value: task, description: `${task.state} · ${showTime(task)}` })),
         })
-        if (task) await details(task)
+        if (task) details(task, target, true)
+      } catch (cause) {
+        if (canShow?.()) context.ui.dialog.clear()
+        context.ui.toast.show({ message: errorMessage(cause), variant: "error" })
+      }
+    }
+
+    async function openList() {
+      try {
+        await openListAt(await location(activeSession()))
       } catch (cause) {
         context.ui.toast.show({ message: errorMessage(cause), variant: "error" })
       }
@@ -219,30 +266,37 @@ export default Plugin.define({
     }))
 
     function Sidebar(props: { sessionID: string }) {
-      const [items, setItems] = createSignal<Task[]>([])
+      const [snapshot, setSnapshot] = createSignal<{ target: TaskLocation; items: Task[] }>()
+      const items = () => snapshot()?.items ?? []
       let mounted = true
       let running = false
+      let request = 0
+      let lastSessionID: string | undefined
       async function refresh() {
-        if (running) return
+        const currentRequest = ++request
         running = true
         const sessionID = props.sessionID
         try {
-          const current = await tasks(sessionID)
-          if (mounted && sessionID === props.sessionID) setItems(current)
+          const target = await location(sessionID)
+          const current = await tasks(target)
+          if (mounted && currentRequest === request) setSnapshot({ target, items: current })
         } catch {
-          if (mounted && sessionID === props.sessionID) setItems([])
+          if (mounted && currentRequest === request) setSnapshot(undefined)
         } finally {
-          running = false
+          if (currentRequest === request) running = false
         }
       }
       createEffect(() => {
+        const sessionID = props.sessionID
+        taskRevision()
         // Clear another project's tasks while the new session location loads.
-        if (props.sessionID) {
-          setItems([])
-          void untrack(refresh)
+        if (sessionID !== lastSessionID) {
+          lastSessionID = sessionID
+          setSnapshot(undefined)
         }
+        void untrack(refresh)
       })
-      const timer = setInterval(() => void refresh(), 2000)
+      const timer = setInterval(() => { if (!running) void refresh() }, 2000)
       onCleanup(() => { mounted = false; clearInterval(timer) })
 
       return (
@@ -250,7 +304,10 @@ export default Plugin.define({
           <box onMouseUp={activateOnRelease(openList)}><text fg={context.theme.text.base}>Scheduled tasks</text></box>
           <box onMouseUp={activateOnRelease(openForm)}><text fg={context.theme.text.base}>+ Schedule task</text></box>
           <For each={items().slice(0, 5)} fallback={<text fg={context.theme.text.muted}>No tasks</text>}>
-            {(task) => <box flexDirection="column" onMouseUp={activateOnRelease(() => details(task))}>
+            {(task) => <box flexDirection="column" onMouseUp={activateOnRelease(() => {
+              const current = snapshot()
+              if (current?.items.includes(task)) details(task, current.target)
+            })}>
               <text fg={context.theme.text.base} truncate>{taskTitle(task)}</text>
               <text fg={context.theme.text.muted} truncate>{task.state} · {sidebarTime(task)}</text>
             </box>}
