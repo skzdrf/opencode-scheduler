@@ -4,12 +4,12 @@ Schedule a one-off prompt from the OpenCode terminal UI or ask an agent to sched
 
 ## Install
 
-With OpenCode 2.4.1, add the GitHub entry below to the `plugins` array in your existing `opencode.json` or `opencode.jsonc`. OpenCode downloads the plugin from the public repository and tracks the `feature/scheduler` development branch. If you previously configured a local checkout, replace its entry with the GitHub entry. [OpenCode plugin installation](https://opencode.ai/docs/plugins/#manage)
+With OpenCode 2.4.1, add the GitHub entry below to the `plugins` array in your existing `opencode.json` or `opencode.jsonc`. OpenCode downloads the plugin from the public repository and tracks `master`. Replace any existing scheduler entry with the GitHub entry below. [OpenCode plugin installation](https://opencode.ai/docs/plugins/#manage)
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["github:skzdrf/opencode-scheduler#feature/scheduler"],
+  "plugins": ["github:skzdrf/opencode-scheduler#master"],
   "experimental": { "location_idle_timeout": false }
 }
 ```
