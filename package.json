@@ -1,28 +1,31 @@
 {
   "scripts": {
+    "build:tui": "node scripts/build-tui.mjs",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && node scripts/build-tui.mjs --check"
   },
   "files": [
-    "src"
+    "src/*.ts",
+    "dist/tui.js"
   ],
   "name": "opencode-scheduler",
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    "./tui": "./src/tui.tsx",
+    "./tui": "./dist/tui.js",
     ".": "./src/index.ts",
     "./rpc": "./src/rpc.ts"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.27.1",
+    "@opencode/plugin": "2.4.1",
     "@opentui/core": "^0.9.4",
     "@opentui/solid": "0.9.4",
     "@types/bun": "^1.4.5",
     "@types/node": "^22.0.0",
+    "babel-preset-solid": "1.9.16",
+    "solid-js": "^1.9.0",
     "typescript": "^5.9.0"
-  },
-  "dependencies": {
-    "@opencode/plugin": "2.4.1",
-    "solid-js": "^1.9.0"
   }
 }

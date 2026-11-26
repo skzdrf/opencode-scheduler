@@ -4,7 +4,11 @@ Schedule a one-off prompt from the OpenCode terminal UI or ask an agent to sched
 
 ## Install
 
-With OpenCode 2.4.1, add the GitHub entry below to the `plugins` array in your existing `opencode.json` or `opencode.jsonc`. OpenCode downloads the plugin from the public repository and tracks `master`. Replace any existing scheduler entry with the GitHub entry below. [OpenCode plugin installation](https://opencode.ai/docs/plugins/#manage)
+Use OpenCode 2.4.1. The Git package includes the prebuilt terminal UI. OpenCode supplies its runtime, so installation requires no separate Node.js, OpenTUI, or Solid setup.
+
+### Local or standalone
+
+On the machine where you run OpenCode, merge these settings into your existing `opencode.json` or `opencode.jsonc`. Use `~/.config/opencode/opencode.json` for all projects or `opencode.json` in a project for that project only. Replace any existing scheduler entry in `plugins`.
 
 ```jsonc
 {
@@ -14,7 +18,43 @@ With OpenCode 2.4.1, add the GitHub entry below to the `plugins` array in your e
 }
 ```
 
-Use the project configuration for one project or the global configuration for all projects. If you connect to `opencode serve`, edit the configuration on the server host. Set `experimental.location_idle_timeout` to `false` so tasks can run after the project has been idle for more than an hour. Reload the project, then enter `/schedule` in the TUI to open the task form. [OpenCode configuration](https://opencode.ai/docs/config/#location-idle-timeout)
+Open a terminal in the project and run `opencode`, then enter `/schedule`. The default shared service can run scheduled tasks after you close the terminal UI. `opencode --standalone` starts a private server that exits with the UI. [OpenCode CLI](https://opencode.ai/docs/cli/#background-service)
+
+### Server with a remote terminal client
+
+1. On the **server**, add the `opencode.json(c)` settings above. If you run `opencode serve`, keep it running. For example, start a server reachable through SSH:
+
+   ```sh
+   opencode serve --hostname 127.0.0.1 --port 4096
+   ```
+
+2. On the **client**, add the same Git package to `plugins` in `~/.config/opencode/cli.json`. This installs the TUI in the client's plugin cache. Use the same branch or tag on both machines. [OpenCode CLI plugins](https://opencode.ai/docs/cli/plugins/)
+
+   ```json
+   {
+     "plugins": ["github:skzdrf/opencode-scheduler#master"]
+   }
+   ```
+
+3. Connect to the server URL. If you started the loopback-only server above, leave this SSH tunnel open in one client terminal:
+
+   ```sh
+   ssh -N -L 4096:127.0.0.1:4096 user@my-server
+   ```
+
+   In another terminal, set `OPENCODE_PASSWORD` to the password printed by `opencode serve` and connect. [OpenCode server access](https://opencode.ai/docs/cli/web/#authentication)
+
+   ```sh
+   opencode --server http://127.0.0.1:4096
+   ```
+
+4. Use `/sessions` to open a session in the server project, then run `/scheduled-tasks`. You can also pass `--session <session-id>` when connecting. The list shows tasks for the open project.
+
+`experimental.location_idle_timeout: false` keeps the project loaded so scheduled tasks can run after long periods of inactivity. [OpenCode configuration](https://opencode.ai/docs/config/#location-idle-timeout)
+
+### Pin a release
+
+Replace `#master` in the configuration with a published release tag that includes `dist/tui.js`. OpenCode uses the Git package spec to install the release. Direct GitHub Release `.tgz` URLs are unsupported in OpenCode 2.4.1. [OpenCode plugin installation](https://opencode.ai/docs/plugins/#manage)
 
 ## Schedule and inspect tasks
 
@@ -34,4 +74,6 @@ The queue is stored under `$XDG_STATE_HOME/opencode-scheduler` or `~/.local/stat
 
 ## Development
 
-For local development, clone the repository, run `npm ci`, and use the checkout’s absolute path as the plugin entry. Run `npm run check` and `npm test` from the checkout. The tests use Node.js 22.6 or newer. The plugin runs inside OpenCode’s Bun runtime.
+For local development, clone the repository, run `npm ci`, and use the checkout’s absolute path as the plugin entry. Run `npm run build:tui` after editing `src/tui.tsx` and include the updated `dist/tui.js` in the commit. Run `npm run check` and `npm test` from the checkout. The tests use Node.js 22.6 or newer. The plugin runs inside OpenCode’s Bun runtime.
+
+To build a distributable archive, run `npm run build:tui` and `npm pack --pack-destination dist`. The resulting `.tgz` can be attached to a GitHub Release. For one-line OpenCode installation, tag the commit that contains the build and use its Git package spec in `plugins`.
